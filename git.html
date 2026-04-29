@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>POS 遠端相機掃描器</title>
+    <script src="https://unpkg.com/html5-qrcode"></script>
+    <style>
+        :root {
+            --primary: #6366f1;
+            --bg: #0f172a;
+            --card: #1e293b;
+            --text: #f8fafc;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        .container {
+            width: 100%;
+            max-width: 500px;
+            background: var(--card);
+            padding: 2rem;
+            border-radius: 1.5rem;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            text-align: center;
+        }
+        h1 { font-size: 1.5rem; margin-bottom: 1.5rem; color: var(--primary); }
+        #reader {
+            width: 100%;
+            border-radius: 1rem;
+            overflow: hidden;
+            border: 2px solid #334155;
+            background: #000;
+        }
+        .status {
+            margin-top: 1.5rem;
+            padding: 1rem;
+            border-radius: 0.75rem;
+            font-weight: 500;
+            min-height: 1.5rem;
+        }
+        .status.success { background: #065f46; color: #34d399; }
+        .status.error { background: #7f1d1d; color: #f87171; }
+        .status.info { background: #1e3a8a; color: #60a5fa; }
+        
+        .config-panel {
+            margin-top: 1rem;
+            font-size: 0.8rem;
+            color: #94a3b8;
+        }
+        input {
+            background: #0f172a;
+            border: 1px solid #334155;
+            color: white;
+            padding: 0.5rem;
+            border-radius: 0.4rem;
+            width: 100%;
+            margin-top: 0.5rem;
+            box-sizing: border-box;
+        }
+        .btn {
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.5rem;
+            margin-top: 1rem;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+        .btn:hover { opacity: 0.9; transform: translateY(-1px); }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>📷 POS 遠端掃描器</h1>
+    <p style="color: #94a3b8; font-size: 0.9rem; margin-bottom: 1rem;">將手機對準商品條碼，自動傳送到 POS 系統</p>
+    <div id="reader"></div>
+    <div id="status" class="status info">等待掃描...</div>
+
+    <div class="config-panel">
+        <label style="display:block; text-align:left; margin-bottom:5px;">1. 部署 Apps Script 為 Web App</label>
+        <label style="display:block; text-align:left; margin-bottom:5px;">2. 貼入 Web App 網址：</label>
+        <input type="text" id="api-url" placeholder="https://script.google.com/macros/s/.../exec" onchange="saveUrl()">
+        <p style="margin-top: 10px; font-style: italic;">※ 網址會自動儲存，下次開啟不需重複輸入</p>
+    </div>
+</div>
+
+<script>
+    const statusEl = document.getElementById('status');
+    const apiUrlInput = document.getElementById('api-url');
+
+    // 從 LocalStorage 載入上次設定的 URL
+    const savedUrl = localStorage.getItem('pos_scan_api_url');
+    if (savedUrl) apiUrlInput.value = savedUrl;
+
+    function saveUrl() {
+        localStorage.setItem('pos_scan_api_url', apiUrlInput.value);
+    }
+
+    function onScanSuccess(decodedText, decodedResult) {
+        console.log(`Code matched = ${decodedText}`, decodedResult);
+        statusEl.innerText = `掃描成功: ${decodedText}`;
+        statusEl.className = 'status success';
+        
+        sendToAppsScript(decodedText);
+        
+        // 暫停一下再繼續掃描，避免重複傳送
+        html5QrcodeScanner.pause();
+        setTimeout(() => {
+            html5QrcodeScanner.resume();
+            statusEl.innerText = '等待下一次掃描...';
+            statusEl.className = 'status info';
+        }, 2000);
+    }
+
+    function onScanFailure(error) {
+        // 通常不需要在畫面上顯示失敗，因為掃描器會持續嘗試
+    }
+
+    async function sendToAppsScript(barcode) {
+        const url = apiUrlInput.value;
+        if (!url) {
+            statusEl.innerText = '錯誤: 請先設定 API URL';
+            statusEl.className = 'status error';
+            return;
+        }
+
+        try {
+            // 使用 FormData 以符合 Apps Script 的 doPost 接收格式
+            const formData = new URLSearchParams();
+            formData.append('barcode', barcode);
+            formData.append('action', 'scan');
+
+            const response = await fetch(url, {
+                method: 'POST',
+                mode: 'no-cors', // 重要：Apps Script 跨網域 POST 通常需要 no-cors
+                body: formData
+            });
+
+            // 因為 no-cors 無法讀取內容，我們只能假設傳送成功
+            statusEl.innerText = `已傳送: ${barcode}`;
+            statusEl.className = 'status success';
+            
+            // 震動回饋 (如果手機支援)
+            if (navigator.vibrate) navigator.vibrate(200);
+
+        } catch (err) {
+            statusEl.innerText = `傳送失敗: ${err.message}`;
+            statusEl.className = 'status error';
+        }
+    }
+
+    let html5QrcodeScanner = new Html5QrcodeScanner(
+        "reader", 
+        { 
+            fps: 10, 
+            qrbox: {width: 250, height: 150},
+            aspectRatio: 1.0
+        },
+        /* verbose= */ false
+    );
+    html5QrcodeScanner.render(onScanSuccess, onScanFailure);
+</script>
+
+</body>
+</html>

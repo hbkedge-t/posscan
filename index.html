@@ -124,9 +124,12 @@
                 const barcode = this.value.trim();
                 if (barcode) {
                     handleBarcodeResult(barcode);
-                    this.value = '';
+                    this.select();
                 }
             }
+        });
+        barcodeInput.addEventListener('focus', function() {
+            this.select();
         });
     }
 

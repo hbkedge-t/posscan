@@ -89,6 +89,12 @@
     <p style="color: #94a3b8; font-size: 0.9rem; margin-bottom: 1rem;">將手機對準商品條碼，自動傳送到 POS 系統</p>
     <div id="reader"></div>
     <div id="status" class="status info">等待掃描...</div>
+    <div style="margin-top: 1rem;">
+        <input type="text" id="barcode-input" placeholder="⌨️ 手動輸入或掃描槍輸入條碼並按 Enter..." 
+               style="background: #0f172a; border: 1px solid #334155; color: white; padding: 0.75rem; border-radius: 0.5rem; width: 100%; box-sizing: border-box; font-size: 1rem; text-align: center; outline: none; transition: border-color 0.2s;"
+               onfocus="this.style.borderColor='var(--primary)'"
+               onblur="this.style.borderColor='#334155'">
+    </div>
 
     <div class="config-panel">
         <label style="display:block; text-align:left; margin-bottom:5px;">1. 部署 Apps Script 為 Web App</label>
@@ -101,6 +107,7 @@
 <script>
     const statusEl = document.getElementById('status');
     const apiUrlInput = document.getElementById('api-url');
+    const barcodeInput = document.getElementById('barcode-input');
 
     // 從 LocalStorage 載入上次設定的 URL
     const savedUrl = localStorage.getItem('pos_scan_api_url');
@@ -110,20 +117,57 @@
         localStorage.setItem('pos_scan_api_url', apiUrlInput.value);
     }
 
+    if (barcodeInput) {
+        barcodeInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                const barcode = this.value.trim();
+                if (barcode) {
+                    handleBarcodeResult(barcode);
+                    this.value = '';
+                }
+            }
+        });
+    }
+
     function onScanSuccess(decodedText, decodedResult) {
         console.log(`Code matched = ${decodedText}`, decodedResult);
-        statusEl.innerText = `掃描成功: ${decodedText}`;
+        
+        // 將條碼填入輸入框，並模擬按下 Enter 鍵以回傳
+        if (barcodeInput) {
+            barcodeInput.value = decodedText;
+            const event = new KeyboardEvent('keydown', {
+                key: 'Enter',
+                code: 'Enter',
+                keyCode: 13,
+                which: 13,
+                bubbles: true
+            });
+            barcodeInput.dispatchEvent(event);
+        } else {
+            handleBarcodeResult(decodedText);
+        }
+    }
+
+    function handleBarcodeResult(barcode) {
+        statusEl.innerText = `掃描成功: ${barcode}`;
         statusEl.className = 'status success';
         
-        sendToAppsScript(decodedText);
+        sendToAppsScript(barcode);
         
         // 暫停一下再繼續掃描，避免重複傳送
-        html5QrcodeScanner.pause();
-        setTimeout(() => {
-            html5QrcodeScanner.resume();
-            statusEl.innerText = '等待下一次掃描...';
-            statusEl.className = 'status info';
-        }, 2000);
+        if (html5QrcodeScanner && typeof html5QrcodeScanner.pause === 'function') {
+            try {
+                html5QrcodeScanner.pause();
+                setTimeout(() => {
+                    html5QrcodeScanner.resume();
+                    statusEl.innerText = '等待下一次掃描...';
+                    statusEl.className = 'status info';
+                }, 2000);
+            } catch (e) {
+                console.error(e);
+            }
+        }
     }
 
     function onScanFailure(error) {
